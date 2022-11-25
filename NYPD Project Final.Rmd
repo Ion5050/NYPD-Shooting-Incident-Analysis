@@ -1,0 +1,226 @@
+---
+title: "NYC Shooting Incident Data with Respect to Gender and Borough Poverty Rates"
+author: "S. Dunlop"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+We will be importing data on shooting incidents in New Yor City, NY, USA. as 
+well as poverty data for each of the boroughs of NYC.
+Our overall interest is in 2 areas:
+ - evaluate the gender roles involved in the shooting incidences and see
+  if there are any differences in events based on gender roles
+  - create a model to investigate the correlation, if any, between shooting
+  incidents and poverty within each borough
+ 
+Please note: given that the data do not seem to provide for non-binary
+gender identification at this time, we will only be able to work
+with binary gender assignments for this analysis
+
+We will start by reading in the data from the below site, and removing some of columns that are not pertinent at this time, such as Latitude and Longitude, etc
+
+```{r get_NY_data}
+# Let's add our libraries for use
+library(tidyverse)
+
+# We begin by importing data from the files from sites below
+# - first the shooting incident data
+# - then population data for the boroughs of NY City
+
+# - original data from
+# https://www.census.gov/data/datasets/2020/demo/saipe/2020-state-and-cou #nty.html
+
+NY_data <- read_csv("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
+
+NY_pop <- read_csv("https://data.cityofnewyork.us/api/views/xywu-7bv9/rows.csv?accessType=DOWNLOAD")
+
+NY_poverty_raw <- read.delim("https://www2.census.gov/programs-surveys/saipe/datasets/2020/2020-state-and-county/est20-ny.txt", header=FALSE, 
+sep = "")
+
+# Then we select the columns of data we wish to work with
+# and rename STATTISTICAL_MURDER_FLAG to DEATH, indicating
+# incident resulted in death of the victim
+# and re-assign both gender categories to Factor data type
+# and filter and remove "U" gender categories
+
+NY_data <- NY_data %>%  
+  select (BORO, STATISTICAL_MURDER_FLAG, PERP_SEX,VIC_SEX) %>% 
+  rename(DEATH = STATISTICAL_MURDER_FLAG)
+
+NY_data$PERP_SEX <- as.factor(NY_data$PERP_SEX)
+NY_data$VIC_SEX <- as.factor(NY_data$VIC_SEX)
+
+NY_data <- NY_data %>% 
+  filter(VIC_SEX != 'U') %>% 
+  filter(PERP_SEX != 'U') # To remove all gender = U data
+NY_data$PERP_SEX <- droplevels(NY_data$PERP_SEX) 
+NY_data$VIC_SEX <- droplevels(NY_data$VIC_SEX)#Remove level U from factor
+
+# Now we will need to remove all "N/A" to ensure accuracy of data used
+NY_data <- NY_data %>%  
+  na.omit()
+
+# We now create new variables to calculate incident per 1000 comparison
+
+total_incidents = nrow(NY_data)
+
+Queens_per1000 = sum(with(NY_data,BORO == "QUEENS")) / as.numeric(NY_pop[5,17]) *1000
+Brooklyn_per1000 = sum(with(NY_data,BORO == "BROOKLYN")) / as.numeric(NY_pop[3,17]) *1000
+Staten_per1000 = sum(with(NY_data,BORO == "STATEN ISLAND")) / as.numeric(NY_pop[6,17]) *1000
+Manhattan_per1000 = sum(with(NY_data,BORO == "MANHATTAN")) / as.numeric(NY_pop[4,17]) *1000
+Bronx_per1000 = sum(with(NY_data,BORO == "BRONX")) / as.numeric(NY_pop[2,17]) *1000
+
+# NY_poverty dataset is for use in our model - we will add in poverty  percentage
+# for each borough (county) and the incidents per 1000 values
+NY_poverty <- data.frame(matrix(nrow=5, ncol=3))
+colnames(NY_poverty) <- c("county_name", "pct", "Incidentper1000")
+
+NY_poverty$county_name <- c("Staten Island", "Bronx", "Brooklyn", 
+                            "Manhattan", "Queens")
+
+NY_poverty$pct <- c(NY_poverty_raw[44,6], NY_poverty_raw[4,6],
+                    NY_poverty_raw[25,6],NY_poverty_raw[32,6],
+                    NY_poverty_raw[42,6])
+
+NY_poverty$Incidentper1000 <- c(Staten_per1000, Bronx_per1000, 
+  Brooklyn_per1000, Manhattan_per1000, Queens_per1000)
+
+
+
+# ***** Visualization of Data  - Create bar graph for Borough incidents ******
+# by perp_sex
+NY_data %>% 
+  ggplot(aes(x=BORO, fill = PERP_SEX))+
+  geom_bar(position = "dodge", alpha = 0.5)+
+    geom_text(aes(label = ..count..), stat = "count", vjust = 1.0, 
+            colour = "black", size = 4, position = position_dodge(.9))+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  labs(title = "Shooting Incidents by Borough and Perpetrator Gender",
+       x = "Borough", y = "Number of Incidents")
+
+# Visualization of Data  - Create bar graph for Borough incidents
+# by vic_sex
+NY_data %>% 
+  ggplot(aes(x=BORO, fill = VIC_SEX))+
+  geom_bar(position = "dodge", alpha = 0.5)+
+    geom_text(aes(label = ..count..), stat = "count", vjust = 1.5, 
+            colour = "black", size = 4, position = position_dodge(.9))+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  labs(title = "Shooting Incidents by Borough and Victim Gender",
+       x = "Borough", y = "Number of Incidents")
+
+
+# Create bar graph for all incidents resulting in death by gender
+NY_data %>% 
+  ggplot(aes(x=VIC_SEX, fill = DEATH))+
+  geom_bar(position = "dodge",
+           alpha = 0.5)+
+    geom_text(aes(label = ..count..), stat = "count", vjust = 1.5, 
+            colour = "black", size = 4, position = position_dodge(.9))+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  labs(title = "Incidents Resulting in Deaths by Gender of Victim",
+       x = "Victim Gender", y = "Number of Death")
+
+# Create bar graph for all incidents resulting in death by gender
+# with Perp = male
+M_Perp_data <- NY_data %>% 
+  filter(PERP_SEX == 'M') %>% 
+  filter(DEATH == T)
+
+M_Perp_data %>% 
+  ggplot(aes(x=VIC_SEX, fill = VIC_SEX))+
+  geom_bar(position = "dodge",
+           alpha = 0.5)+
+  geom_text(aes(label = ..count..), stat = "count", vjust = 1.5, 
+            colour = "black", size = 4, position = position_dodge(.9))+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  labs(title = "Incidents Resulting in Deaths - Male Perpetrator",
+       x = "Victim Gender", y = "Number of Death")
+
+# Create bar graph for all incidents resulting in death by gender
+# with Perp = FEMALE
+F_Perp_data <- NY_data %>% 
+  filter(PERP_SEX == 'F') %>% 
+  filter(DEATH == T)
+
+  
+F_Perp_data %>% 
+  ggplot(aes(x=VIC_SEX, fill = VIC_SEX))+
+  geom_bar(position = "dodge",
+           alpha = 0.5)+
+  geom_text(aes(label = ..count..), stat = "count", vjust = 1.5, 
+            colour = "black", size = 4, position = position_dodge(.9))+
+  theme_bw()+
+  theme(panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank())+
+  labs(title = "Incidents Resulting in Deaths - Female Perpetrator",
+       x = "Victim Gender", y = "Number of Death")
+
+
+# MODELING - we will use the model of poverty rate in each borough in how it
+# relates to shooting incidents per 1000 population
+
+mod <- lm(NY_poverty$Incidentper1000 ~ NY_poverty$pct)
+NY_poverty_pred <- NY_poverty %>% mutate(pred = predict(mod))
+
+# Setup visualization of our model's prediction
+NY_poverty_pred %>% ggplot() +
+  geom_point(aes(x = pct, y = Incidentper1000), color = "blue") +
+  geom_text(aes(x=pct, y=Incidentper1000),label= NY_poverty_pred$county_name, nudge_x=0.1, nudge_y=0.05, check_overlap=T) +
+  geom_point(aes(x = pct, y = pred), color = "red") +
+  geom_line(aes(x = pct, y = pred), color = "red") +
+  labs(title = "Shooting Incidents and Poverty (Model Predictions in Red)",
+       x = "Percentage of Poverty in Borough", y = "Shooting Incidents (per 1000)") 
+
+```
+             ***** Analysis of Data and Model *****
+
+Gender data analysis - The goal with this analysis was to find if there was a particular
+trend in perpetrator / victim data to help understand where resources can be focused 
+to help reduce the occurrence of shooting incidents and focus / deliver victims services.
+The data indicate that males are the vast majority of the perpetrators in incidents
+throughout all boroughs at approximately the same rate versus female perpetrators.
+Victim data indicate that males are also the vast majority of victims in shooting
+incidents, regardless of the gender of the perpetrator. Finally, there were no
+major differences found in incidents that resulted in the death of a victim, based
+on gender or borough location of the incident.
+
+Model and analysis - Using borough poverty rate as an indicator for shooting 
+incidents showed that there is a strong correlation between a high poverty rate
+and an increase in shooting incidents. This once again reiterates the need for
+root causes of poverty to be identified and minimized in an on going effort to
+reduce violence, and in particular for this analysis, shooting incidents.
+
+Further analysis - This is a preliminary and basic analysis of an extremely
+complex yet very important issue that all of society must deal with, at one
+level or another. Violent crimes, their connection to poverty, and society's 
+efforts in how to solve these challenges must be a focus for all organizations
+and governments for the betterment of their citizens.
+Next steps would be to dig deeper into smaller geographical areas / neighborhoods,
+and include more vectors to analyze that may work towards identifying targets for
+social programs, funding, community based resources, etc.
+
+Bias in data - There are possible biases as it was sourced from the NY Police
+Department and not all incidents may have involved police resources. Also, data
+collection and methodologies may not be able to capture all incident data 
+correctly.
+Bias in analysis - There is often an anecdotal connection between communities with
+higher poverty and higher rates of crime. While the data seen here does agree in 
+general with the anecdotal view, we must always be mindful to not let our ideas, 
+or the assumptions we see in our society, lead our investigations or form our
+mindset before we can honestly analyze the data. We must always think about the 
+results we see through a multitude of viewpoints to give our analysis the best
+chance of delivering the truest picture that the data represent.
+
+
+
+
